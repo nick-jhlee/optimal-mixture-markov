@@ -1,6 +1,7 @@
 import numpy as np
 import numpy.linalg as LA
 from typing import List, Tuple, Dict
+from sklearn.cluster import KMeans
 
 # Constants for optimization
 SIGMA_THRESHOLD_FACTOR = 5e-2  # Factor for sigma threshold calculation
@@ -44,78 +45,85 @@ def L_embedding(trajectories: List[List[int]], T: int, H: int, S: int) -> np.nda
     
     return W_hat
 
-def InitialSpectral(trajectories: List[List[int]], T: int, H: int, S: int, gamma_ps: float, delta: float, verbose: bool = False) -> Dict[int, int]:
+def InitialSpectral(trajectories: List[List[int]], T: int, H: int, S: int, gamma_ps: float, delta: float, K: int = None, verbose: bool = False) -> Dict[int, int]:
     f_hat = {}
 
     # SVD with thresholding
     W_hat = L_embedding(trajectories, T, H, S)
-    # sigma_threshold = 8 * np.sqrt(T * S * np.log(T*H/delta) / (H * gamma_ps))
-    sigma_threshold = SIGMA_THRESHOLD_FACTOR * np.sqrt(T * S * np.log(T*H/delta) / (H * gamma_ps))
     U, Sigma, _ = LA.svd(W_hat)
     if verbose:
         print(Sigma)
-    # plt.plot(S)
-    # plt.show()
-    if verbose:
-        print(sigma_threshold)
-    R_hat = sum(Sigma >= sigma_threshold)
-    X_hat = U[:, :R_hat] @ np.diag(Sigma[:R_hat])
-    if verbose:
-        print(R_hat)
 
-    # Density-based clustering
-    # Pre-compute distance matrix for efficiency
-    if verbose:
-        print("Computing distance matrix...")
-    distances = np.linalg.norm(X_hat[:, np.newaxis, :] - X_hat[np.newaxis, :, :], axis=2)
-    within_threshold = distances <= sigma_threshold
-    
-    # Convert to sets for compatibility with existing algorithm
-    Q_dict = {t: set(np.where(within_threshold[t])[0]) for t in range(T)}
-    
-    center_idxs = {}
-    S_union = set()
-    S_dict = {0: set()}
-    k, rho = 1, T
-    
-    # Cache the threshold for repeated use
-    rho_threshold = RHO_THRESHOLD_FACTOR * R_hat*T / np.log(T*H / delta)
-    
-    while rho >= rho_threshold:
-        S_union = S_union.union(S_dict[k-1])
+    # K is not known => adaptive clustering procedure
+    if K is None:
+        # sigma_threshold = 8 * np.sqrt(T * S * np.log(T*H/delta) / (H * gamma_ps))
+        sigma_threshold = SIGMA_THRESHOLD_FACTOR * np.sqrt(T * S * np.log(T*H/delta) / (H * gamma_ps))
+        if verbose:
+            print(sigma_threshold)
+        R_hat = sum(Sigma >= sigma_threshold)
+        X_hat = U[:, :R_hat] @ np.diag(Sigma[:R_hat])
+        if verbose:
+            print(R_hat)
+
+        # Density-based clustering
+        # Pre-compute distance matrix for efficiency
+        if verbose:
+            print("Computing distance matrix...")
+        distances = np.linalg.norm(X_hat[:, np.newaxis, :] - X_hat[np.newaxis, :, :], axis=2)
+        within_threshold = distances <= sigma_threshold
         
-        # Vectorized computation of set differences for better performance
-        remaining_counts = np.array([len(Q_dict[t] - S_union) for t in range(T)])
-        t_k_star = np.argmax(remaining_counts)
+        # Convert to sets for compatibility with existing algorithm
+        Q_dict = {t: set(np.where(within_threshold[t])[0]) for t in range(T)}
         
-        center_idxs[k] = t_k_star
-        S_star = Q_dict[t_k_star] - S_union
-        S_dict[k] = S_star
-        k += 1
-        rho = len(S_star)
-    K_hat = int(k - 1)
-
-    for k in range(K_hat):
-        for t in S_dict[k+1]:
-            f_hat[t] = k
-
-    # K-means clustering for the remaining
-    remaining_t = set(range(T)) - S_union
-    if remaining_t:
-        # Use pre-computed distances for efficiency
-        remaining_arr = np.array(list(remaining_t))
-        center_arr = np.array([center_idxs[k+1] for k in range(K_hat)])
-        remaining_distances = distances[np.ix_(remaining_arr, center_arr)]
-        assignments = np.argmin(remaining_distances, axis=1)
+        center_idxs = {}
+        S_union = set()
+        S_dict = {0: set()}
+        k, rho = 1, T
         
-        for i, t in enumerate(remaining_arr):
-            f_hat[t] = assignments[i]
+        # Cache the threshold for repeated use
+        rho_threshold = RHO_THRESHOLD_FACTOR * R_hat*T / np.log(T*H / delta)
+        
+        while rho >= rho_threshold:
+            S_union = S_union.union(S_dict[k-1])
+            
+            # Vectorized computation of set differences for better performance
+            remaining_counts = np.array([len(Q_dict[t] - S_union) for t in range(T)])
+            t_k_star = np.argmax(remaining_counts)
+            
+            center_idxs[k] = t_k_star
+            S_star = Q_dict[t_k_star] - S_union
+            S_dict[k] = S_star
+            k += 1
+            rho = len(S_star)
+        K_hat = int(k - 1)
 
-    if verbose:
-        print(S_dict)
-        print(f_hat)
-    return f_hat
+        for k in range(K_hat):
+            for t in S_dict[k+1]:
+                f_hat[t] = k
 
+        # K-means clustering for the remaining
+        remaining_t = set(range(T)) - S_union
+        if remaining_t:
+            # Use pre-computed distances for efficiency
+            remaining_arr = np.array(list(remaining_t))
+            center_arr = np.array([center_idxs[k+1] for k in range(K_hat)])
+            remaining_distances = distances[np.ix_(remaining_arr, center_arr)]
+            assignments = np.argmin(remaining_distances, axis=1)
+            
+            for i, t in enumerate(remaining_arr):
+                f_hat[t] = assignments[i]
+
+        if verbose:
+            print(S_dict)
+            print(f_hat)
+        return f_hat
+    # K is known => the usual spectral clsutering
+    else:
+        X_hat = U[:, :K] @ np.diag(Sigma[:K])
+        # K-means clustering for the rows
+        kmeans = KMeans(n_clusters=K, random_state=0).fit(X_hat)
+        f_hat = {t: kmeans.labels_[t] for t in range(T)}
+        return f_hat
 
 
 def clustered_transition_matrix(trajectories, indices, S, verbose: bool = False):

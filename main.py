@@ -8,7 +8,7 @@ import numpy as np
 from scipy.interpolate import griddata
 from mpl_toolkits.mplot3d import Axes3D
 
-def process_single_config(T, H, K, S, delta, n_repeat=30):
+def process_single_config(T, H, K, S, delta, known_K=False, n_repeat=30):
     """Process a single (T, H) configuration with multiple repeats - designed for parallel execution"""
     try:
         stage_i_errors = []
@@ -26,7 +26,10 @@ def process_single_config(T, H, K, S, delta, n_repeat=30):
             f, trajectories = env.generate_trajectories(T)
 
             # Stage I: Initial Spectral Clustering
-            f_hat_1 = InitialSpectral(trajectories, T, H, S, gamma_ps, delta)
+            if known_K:
+                f_hat_1 = InitialSpectral(trajectories, T, H, S, gamma_ps, delta, K=K)
+            else:
+                f_hat_1 = InitialSpectral(trajectories, T, H, S, gamma_ps, delta)
             stage_i_error = error_rate(f, f_hat_1)
             stage_i_errors.append(stage_i_error)
             
@@ -46,38 +49,8 @@ def process_single_config(T, H, K, S, delta, n_repeat=30):
         print(f"Error processing T={T}, H={H}: {e}")
         return T, H, [float('inf')] * n_repeat, [float('inf')] * n_repeat, [float('inf')] * n_repeat
 
-def bootstrap_mean_ci_multi(scalar_matrix, alpha=0.05, n_bootstrap=5000, seed=None):
-    """
-    Percentile bootstrap CIs for the mean of K algorithms measured on the same n runs.
-    scalar_matrix: array-like of shape (n_runs, n_algs)
-      Each column is an algorithm; each row is a run/trajectory (shared across algs).
-    Returns:
-      mean_vec: (n_algs,)
-      ci_lower: (n_algs,)
-      ci_upper: (n_algs,)
-    """
-    X = np.asarray(scalar_matrix, dtype=float)
-    # keep only rows where all algs are finite (preserve pairing)
-    good = np.all(np.isfinite(X), axis=1)
-    X = X[good]
-    if X.size == 0:
-        raise ValueError("No finite rows.")
 
-    rng = np.random.default_rng(seed)
-    n, k = X.shape
-
-    mean_vec = X.mean(axis=0)
-
-    # paired resampling of rows
-    idx = rng.integers(0, n, size=(n_bootstrap, n))
-    boot_means = X[idx].mean(axis=1)   # shape: (B, k)
-
-    lower_q, upper_q = alpha/2, 1 - alpha/2
-    ci_lower = np.quantile(boot_means, lower_q, axis=0)
-    ci_upper = np.quantile(boot_means, upper_q, axis=0)
-    return mean_vec, ci_lower, ci_upper
-
-def vary_T_H(T_list, H_list, K, S, delta, n_jobs=-1, n_repeat=30, alpha=0.05):
+def vary_T_H(T_list, H_list, K, S, delta, known_K=False, n_jobs=-1, n_repeat=30, alpha=0.05):
     """Parallelized version of vary_T_H using joblib with repeats and error bars"""
     print(f"Processing {len(T_list)} × {len(H_list)} = {len(T_list) * len(H_list)} configurations...")
     print(f"Using {n_jobs} parallel jobs, {n_repeat} repeats per configuration")
@@ -87,7 +60,7 @@ def vary_T_H(T_list, H_list, K, S, delta, n_jobs=-1, n_repeat=30, alpha=0.05):
     
     # Process in parallel
     results = Parallel(n_jobs=n_jobs, verbose=1)(
-        delayed(process_single_config)(T, H, K, S, delta, n_repeat) 
+        delayed(process_single_config)(T, H, K, S, delta, known_K, n_repeat) 
         for T, H in combinations
     )
     
@@ -358,7 +331,10 @@ if __name__ == '__main__':
 
     # Full experiment
     print("\nRunning full experiment...")
-    T_list = [100, 200, 300, 400, 500, 600]
-    H_list = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 
-              1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000]
-    vary_T_H(T_list, H_list, K, S, delta, n_jobs=-1, n_repeat=30, alpha=0.05)
+    T_list = [100, 200, 300]
+    H_list = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+    # T_list = [200, 300, 400, 500, 600, 700, 800, 900, 1000]
+    # H_list = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 
+    #           1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 
+    #           3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]
+    vary_T_H(T_list, H_list, K, S, delta, known_K=True, n_jobs=-1, n_repeat=30, alpha=0.05)

@@ -56,3 +56,35 @@ def KL(p: np.ndarray, q: np.ndarray) -> float:
     
     # Compute KL only where p > 0
     return np.sum(p[mask] * np.log(p[mask] / q[mask]))
+
+
+def bootstrap_mean_ci_multi(scalar_matrix, alpha=0.05, n_bootstrap=5000, seed=None):
+    """
+    Percentile bootstrap CIs for the mean of K algorithms measured on the same n runs.
+    scalar_matrix: array-like of shape (n_runs, n_algs)
+      Each column is an algorithm; each row is a run/trajectory (shared across algs).
+    Returns:
+      mean_vec: (n_algs,)
+      ci_lower: (n_algs,)
+      ci_upper: (n_algs,)
+    """
+    X = np.asarray(scalar_matrix, dtype=float)
+    # keep only rows where all algs are finite (preserve pairing)
+    good = np.all(np.isfinite(X), axis=1)
+    X = X[good]
+    if X.size == 0:
+        raise ValueError("No finite rows.")
+
+    rng = np.random.default_rng(seed)
+    n, k = X.shape
+
+    mean_vec = X.mean(axis=0)
+
+    # paired resampling of rows
+    idx = rng.integers(0, n, size=(n_bootstrap, n))
+    boot_means = X[idx].mean(axis=1)   # shape: (B, k)
+
+    lower_q, upper_q = alpha/2, 1 - alpha/2
+    ci_lower = np.quantile(boot_means, lower_q, axis=0)
+    ci_upper = np.quantile(boot_means, upper_q, axis=0)
+    return mean_vec, ci_lower, ci_upper
