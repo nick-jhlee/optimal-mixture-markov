@@ -1,6 +1,3 @@
-# from https://github.com/nick-jhlee/optimal-block-mdp/blob/main/Synthetic.py
-# modified by Junghyun Lee
-
 import math
 import numpy as np
 import numpy.linalg as LA
