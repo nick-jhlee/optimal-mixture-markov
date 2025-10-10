@@ -66,7 +66,7 @@ def InitialSpectral(trajectories: List[List[int]], T: int, H: int, S: int, gamma
         # Cache the threshold for repeated use
         rho_threshold = rho_factor * R_hat*T / np.log(T*H / delta)
         
-        while rho >= rho_threshold:
+        while rho > rho_threshold:
             S_union = S_union.union(S_dict[k-1])
             
             # Vectorized computation of set differences for better performance

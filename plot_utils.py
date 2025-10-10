@@ -35,6 +35,9 @@ def plot_panels_with_ci(
     label_fontsize: int | None = None,
     tick_fontsize: int | None = None,
     legend_fontsize: int | None = None,
+    x_tick_formatter: Callable[[int], str] | None = None,
+    facet_title_map: Dict[str, str] | None = None,
+    x_tick_formatter_per_facet: Dict[str, Callable[[int], str]] | None = None,
 ) -> None:
     """
     Render a grid of panels faceted by `facet_col`, x-axis=`x_col`, plotting
@@ -92,7 +95,9 @@ def plot_panels_with_ci(
 
             handles[label_map.get(series, series)] = line
 
-        ax.set_title(f"{facet_col}={facet}", fontsize=title_fs)
+        # Use custom title from facet_title_map if provided, otherwise use default format
+        title = facet_title_map.get(facet, f"{facet_col}={facet}") if facet_title_map else f"{facet_col}={facet}"
+        ax.set_title(title, fontsize=title_fs)
         ax.set_xlabel(x_col, fontsize=label_fs)
         # Only leftmost column shows the y-label
         if i % ncols == 0:
@@ -107,6 +112,14 @@ def plot_panels_with_ci(
                 keep = [x for x in extra_xticks if x in xs]
                 ticks = sorted(set(ticks).union(keep))
             ax.set_xticks(ticks)
+            # Use per-facet formatter if provided, otherwise use global formatter
+            formatter_to_use = None
+            if x_tick_formatter_per_facet is not None and facet in x_tick_formatter_per_facet:
+                formatter_to_use = x_tick_formatter_per_facet[facet]
+            elif x_tick_formatter is not None:
+                formatter_to_use = x_tick_formatter
+            if formatter_to_use is not None:
+                ax.set_xticklabels([formatter_to_use(x) for x in ticks])
         ax.tick_params(labelsize=tick_fs)
 
         if inset and len(xs) > 1:
@@ -123,6 +136,8 @@ def plot_panels_with_ci(
             axins.set_xlim(zlo, zhi)
             if inset_xticks is not None:
                 axins.set_xticks(list(inset_xticks))
+                if x_tick_formatter is not None:
+                    axins.set_xticklabels([x_tick_formatter(x) for x in inset_xticks])
             axins.set_ylim(*ylims)
             axins.grid(alpha=0.25, linestyle="--", linewidth=0.5)
             axins.tick_params(labelsize=max(8, tick_fs - 2))

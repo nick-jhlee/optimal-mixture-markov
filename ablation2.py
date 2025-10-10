@@ -11,6 +11,7 @@ from Synthetic import MixtureMarkovChains, _build_env_config
 from Clustering import InitialSpectral, LikelihoodRefinement, OracleLikelihoodRefinement
 from utils import bootstrap_mean_ci_multi, error_rate
 from plot_utils import plot_panels_with_ci
+from matplotlib.ticker import FuncFormatter
 
 
 # --------------------------- Config & utilities --------------------------- #
@@ -177,126 +178,222 @@ def _style_for(algo: str) -> Tuple[str, str]:
     return "#1F77B4", (0, (2, 2))
 
 
-def plot_panels(summary: pd.DataFrame, savepath: str = "results/ablation2_results.pdf") -> None:
-    # Series and labels
+def plot_panels(summary: pd.DataFrame, savepath: str = "results/ablation2_results.pdf", h_split: Tuple[Sequence[int], Sequence[int]] | None = None) -> None:
+    # Series and labels: show unknown-K Stage I (dotted) and Stage I+II (solid) per (c1,c2)
     all_algos = [c for c in summary["algo"].unique()]
     unknown_s1 = sorted([a for a in all_algos if a.startswith("unknown_c1") and a.endswith("stage1")])
-    # Find em label suffix dynamically (e.g., em10)
     unknown_em = sorted([a for a in all_algos if a.startswith("unknown_c1") and ("_em" in a) and not a.endswith("stage1")])
 
-    # Derive EM suffix from known key (assumes consistent em_iters)
-    known_em_keys = sorted([a for a in all_algos if a.startswith("known_em")])
-    em_suffix = known_em_keys[0].split("known_")[1] if known_em_keys else "em10"
-
-    # Interleave unknown pairs: for legend vertical alignment, we will build legend_order.
-    series_order = ["oracle", "known_stage1", f"known_{em_suffix}"] + unknown_s1 + unknown_em
-
-    label_map = {
-        "oracle": "Oracle",
-        "known_stage1": "Known K (Stage I)",
-        f"known_{em_suffix}": f"Known K ({em_suffix.upper()})",
-    }
-    # Build pair labels for unknown variants
-    def pretty_pair(a: str) -> str:
-        # a like: unknown_c11e-06_c21e-03_stage1 or _em10; show in 1e-? format
-        base = a.split("_stage1")[0].split("_em")[0]
-        _, c1s, c2s = base.split("_")  # ["unknown", "c11e-04", "c21e-03"]
+    # Parse c1 and c2 from algo into new columns to facet by c1 and label by c2
+    def parse_c1_c2(algo_name: str) -> Tuple[str, str]:
+        base = algo_name.split("_stage1")[0].split("_em")[0]
+        # base format: unknown_c1{val}_c2{val}
+        _, c1s, c2s = base.split("_")
         c1v = c1s.replace("c1", "")
         c2v = c2s.replace("c2", "")
-        return f"c1={c1v}, c2={c2v}"
+        return c1v, c2v
 
-    for a in unknown_s1:
-        label_map[a] = f"Unknown ({pretty_pair(a)}) Stage I"
-    for a in unknown_em:
-        label_map[a] = f"Unknown ({pretty_pair(a)}) {a.split('_')[-1].upper()}"
+    # Filter summary to unknown-only series for plotting (avoid early use of series_order)
+    summary_plot = summary[summary["algo"].str.startswith("unknown_c1")].copy()
+    c1_vals: List[str] = []
+    c2_vals: List[str] = []
+    stages: List[str] = []
+    for a in summary_plot["algo"].tolist():
+        c1v, c2v = parse_c1_c2(a)
+        c1_vals.append(c1v)
+        c2_vals.append(c2v)
+        stages.append("stage1" if a.endswith("stage1") else "em")
+    summary_plot["c1"] = c1_vals
+    summary_plot["c2"] = c2_vals
+    summary_plot["stage"] = stages
+    # Enforce numeric ascending order for c1 facets
+    try:
+        summary_plot["c1"] = summary_plot["c1"].astype(float)
+    except Exception:
+        pass
 
-    # Legend alignment: two rows, columns grouped per variant
-    # Build legend labels in column-major order: [oracle, spacer], [known S1, known EM], then one col per unknown pair
-    legend_cols: List[List[str]] = []
-    legend_cols.append(["Oracle", "<spacer>"])
-    legend_cols.append(["Known K (Stage I)", f"Known K ({em_suffix.upper()})"])
-    # For each unknown pair, find its S1 and EM labels
-    for s1 in unknown_s1:
-        base = s1.split("_stage1")[0]
-        em_key = [e for e in unknown_em if e.startswith(base + "_em")]
-        em_label = label_map[em_key[0]] if em_key else f"Unknown ({pretty_pair(s1)}) {em_suffix.upper()}"
-        legend_cols.append([label_map[s1], em_label])
-    # Flatten to the expected legend_order list
-    legend_order: List[str] = [lbl for col in legend_cols for lbl in col]
+    # Helper function for formatting scientific notation
+    def _format_sci(val_str: str) -> str:
+        try:
+            v = float(val_str)
+            s = format(v, ".0e")  # e.g., '1e-02', '1e+00'
+            # strip leading '+' and leading zeros in exponent
+            if "e" in s:
+                base, exp = s.split("e")
+                exp = exp.lstrip("+")
+                if exp.startswith("-"):
+                    exp = "-" + exp[1:].lstrip("0")
+                    if exp == "-":
+                        exp = "0"
+                else:
+                    exp = exp.lstrip("0") or "0"
+                return f"{base}e{exp}"
+            return s
+        except Exception:
+            return val_str
 
-    # Build distinct colors per (c1,c2) base
-    unknown_bases = [s1.split("_stage1")[0] for s1 in unknown_s1]
-    # Palette of visually distinct blues/purples (avoid green/red used by oracle/known)
-    unknown_palette = [
-        "#0072B2",  # blue
-        "#56B4E9",  # light blue
-        "#2F65A2",  # dark blue
-        "#3F87C5",  # medium blue
-        "#6A51A3",  # purple
-        "#9E9AC8",  # light purple
-        "#264E86",  # deep blue
-        "#6BAED6",  # sky blue
-        "#9ECAE1",  # pale blue
-        "#6A3D9A",  # purple alt
-    ]
-    color_map = {base: unknown_palette[i % len(unknown_palette)] for i, base in enumerate(unknown_bases)}
+    # Add H_group if h_split is provided
+    if h_split is not None:
+        h_list_1, h_list_2 = h_split
+        
+        # Find H values that appear in both lists (need to duplicate these rows)
+        h_overlap = set(h_list_1) & set(h_list_2)
+        
+        # Create separate dataframes for each group
+        dfs_to_concat = []
+        
+        # Group 1: all H values in h_list_1
+        df_group1 = summary_plot[summary_plot["H"].isin(h_list_1)].copy()
+        df_group1["H_group"] = 1
+        dfs_to_concat.append(df_group1)
+        
+        # Group 2: all H values in h_list_2
+        df_group2 = summary_plot[summary_plot["H"].isin(h_list_2)].copy()
+        df_group2["H_group"] = 2
+        dfs_to_concat.append(df_group2)
+        
+        # Concatenate both groups (this duplicates H values that are in both lists)
+        summary_plot = pd.concat(dfs_to_concat, ignore_index=True)
+        
+        # Get sorted c1 values
+        c1_sorted = sorted(summary_plot["c1"].unique())
+        
+        # Create composite facet key with explicit ordering (row-major)
+        # Format: "1_c1=0.001" so it sorts H_group first, then c1
+        summary_plot["facet_key"] = summary_plot.apply(
+            lambda r: f"{int(r['H_group'])}_c1={r['c1']}",
+            axis=1
+        )
+        
+        # Create readable facet labels for display (just show c1 value)
+        summary_plot["facet_label"] = summary_plot.apply(
+            lambda r: f"c1={_format_sci(str(r['c1']))}",
+            axis=1
+        )
+        
+        facet_col_to_use = "facet_key"
+    else:
+        facet_col_to_use = "c1"
 
-    # Local style function capturing color_map
-    def style_for_local(algo: str) -> Tuple[str, str]:
-        if algo == "oracle":
-            return CB_PALETTE["oracle"], ":"
-        if algo == "known_stage1":
-            return CB_PALETTE["known"], "--"
-        if algo.startswith("known_em"):
-            return CB_PALETTE["known"], "-"
-        if algo.startswith("unknown_c1"):
-            base = algo.split("_stage1")[0].split("_em")[0]
-            color = color_map.get(base, CB_PALETTE["unknown"])  # fallback if needed
-            if algo.endswith("stage1"):
-                # dashed per pair
-                return color, (0, (4, 2))
-            return color, "-"
-        return "#1F77B4", (0, (2, 2))
+    # Create a normalized series key so that series are consistent across facets (by c2 and stage only)
+    summary_plot["series_key"] = summary_plot.apply(
+        lambda r: f"c2={r['c2']}|{('Stage I' if r['stage']== 'stage1' else 'Stage I+II')}",
+        axis=1,
+    )
+
+    # Determine series order and legend labels (vertical alignment: Stage I then Stage II by c2)
+    c2_unique = sorted(summary_plot["c2"].unique(), key=lambda s: float(s))
+    # Interleave Stage I and Stage I+II for each c2 so legend fills correctly in row-major order
+    series_order = []
+    for c2v in c2_unique:
+        series_order.append(f"c2={c2v}|Stage I")
+        series_order.append(f"c2={c2v}|Stage I+II")
+
+    # Legend labels with normalized scientific c2 (e.g., 1e-2, 1e-1, 1e0)
+    label_map: Dict[str, str] = {}
+    for key in series_order:
+        c2_part, stage_part = key.split("|")
+        c2_raw = c2_part.replace("c2=", "")
+        c2_lbl = _format_sci(c2_raw)
+        label_map[key] = f"c2={c2_lbl} ({stage_part})"
+
+    # Palette and colors per c2 (lighter->darker for smaller->larger c2)
+    reds_palette = ["#F46D43", "#D73027", "#A50026"]  # Coral, Rust red, Deep maroon
+    if len(c2_unique) == 1:
+        c2_colors = {c2_unique[0]: reds_palette[0]}
+    else:
+        # Map c2 positions to indices in reds_palette, ensuring darkest for largest c2
+        c2_colors = {}
+        n_levels = len(c2_unique)
+        for i, c2v in enumerate(c2_unique):
+            idx = int(round(i * (len(reds_palette) - 1) / (n_levels - 1)))
+            c2_colors[c2v] = reds_palette[idx]
+
+    # Local style function capturing color by c2 and stage styles
+    def style_for_local(series_key: str) -> Tuple[str, str]:
+        # series_key: "c2={val}|Stage I" or "c2={val}|Stage I+II"
+        c2_part, stage_part = series_key.split("|")
+        c2v = c2_part.replace("c2=", "")
+        color = c2_colors.get(c2v, CB_PALETTE["unknown"])  # fallback
+        if stage_part == "Stage I":
+            return color, (0, (4, 2))
+        return color, "-"
+
+    # Use c1 as facet column; build legend order by label (row-major): Stage I row, then Stage II row
+    # Column-major legend order for vertical alignment per c2: (Stage I, Stage I+II) per column
+    legend_order_labels: List[str] = []
+    for c2v in c2_unique:
+        c2_lbl = _format_sci(c2v)
+        legend_order_labels.append(f"c2={c2_lbl} (Stage I)")
+        legend_order_labels.append(f"c2={c2_lbl} (Stage I+II)")
+
+    # Build facet title map and x-tick formatter per facet if using h_split
+    facet_title_map = None
+    x_tick_formatter_per_facet = None
+    if h_split is not None:
+        facet_title_map = {}
+        x_tick_formatter_per_facet = {}
+        for facet_key in summary_plot["facet_key"].unique():
+            # Get corresponding label and H_group
+            matching_rows = summary_plot[summary_plot["facet_key"] == facet_key]
+            if not matching_rows.empty:
+                facet_title_map[facet_key] = matching_rows.iloc[0]["facet_label"]
+                h_group = matching_rows.iloc[0]["H_group"]
+                # Use scientific notation (1e3, 2e3, etc.) for H group 2 (bottom row)
+                if h_group == 2:
+                    x_tick_formatter_per_facet[facet_key] = lambda x: f"{int(x/1000)}e3"
+                else:
+                    x_tick_formatter_per_facet[facet_key] = lambda x: f"{int(x)}"
 
     plot_panels_with_ci(
-        summary,
+        summary_plot,
         series_order=series_order,
         label_map=label_map,
         style_for=style_for_local,
+        legend_order=series_order,
+        legend_ncol=len(c2_unique),  # num columns = num c2 values (each col has Stage I on top, Stage I+II on bottom)
         savepath=savepath,
-        facet_col="T",
+        facet_col=facet_col_to_use,
         x_col="H",
-        series_col="algo",
+        facet_title_map=facet_title_map,
+        x_tick_formatter_per_facet=x_tick_formatter_per_facet,
+        series_col="series_key",
         y_mean="mean",
         y_lo="lo",
         y_hi="hi",
-        inset=True,
+        inset=False,
+        # With three H values like [10000,20000,30000], ensure the middle tick appears
         inset_xlim=(10, 100),
-        inset_xticks=list(range(10, 101, 10)),
-        extra_xticks=[300],
+        inset_xticks=list(range(100, 1001, 100)),
+        extra_xticks=None,
         y_label="Clustering error",
-        legend_order=legend_order,
-        legend_ncol=len(legend_cols),
+        title_fontsize=18,
+        label_fontsize=16,
+        tick_fontsize=14,
+        legend_fontsize=16,
+        legend_bbox=(0.5, 1.10),
+        top_adjust=0.88,
     )
 
 
 # --------------------------- CLI entry --------------------------- #
 
 def main():
-    T_list = [100, 200, 300, 400, 500, 600]
-    H_list = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+    T_list = [100]
+    # T_list = [100, 200, 300, 400, 500, 600]
+    
+    # Two H ranges for two-row layout (1000 appears in both)
+    H_list_1 = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+    H_list_2 = [1000, 90000]
+    # H_list_2 = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000, 13000, 14000, 15000, 16000, 17000, 18000, 19000, 20000]
+    # Include all unique H values
+    H_list = sorted(set(H_list_1 + H_list_2))
 
-    # Choose a small set of (c1,c2) variations around defaults in Clustering.py
-    c_pairs = (
-        (1e-2, 1e-3),   # baseline as in current constants
-        (1e-3, 1e-2),   # more permissive thresholds => works for T=100
-        (1e-2, 1e-1),   # stricter thresholds
-        # (1e-3, 1.0),   # stricter thresholds
-        # (1e-4, 1e-3),   # baseline as in current constants
-        # (1e-4, 1e-2),   # more permissive thresholds
-        # (1e-4, 1e-1),   # stricter thresholds
-        # (1e-4, 1.0),   # stricter thresholds
-    )
+    # Define grids for c1 and c2 each - using 3 c1 values for 3 columns
+    c1_values = [1e-3, 1e-2, 1e-1]
+    # c2_values = [1e-2, 1e-1, 1]
+    c2_values = [1e-3, 5e-3, 1e-2, 5e-2, 1e-1]
+    c_pairs = tuple((c1, c2) for c1 in c1_values for c2 in c2_values)
 
     df = run_grid(
         T_list=T_list,
@@ -315,7 +412,9 @@ def main():
     summary = summarize(df, alpha=0.05)
     summary.to_csv("results/ablation2_results_unknownK_summary.csv", index=False)
 
-    plot_panels(summary, savepath="results/ablation2_results.png")
+    # Plot with two-row layout (H_list_1 in row 1, H_list_2 in row 2)
+    plot_panels(summary, savepath="results/ablation2_results.png", h_split=(H_list_1, H_list_2))
+    plot_panels(summary, savepath="results/ablation2_results.pdf", h_split=(H_list_1, H_list_2))
 
 
 if __name__ == "__main__":
