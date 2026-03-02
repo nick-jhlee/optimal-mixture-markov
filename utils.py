@@ -138,11 +138,29 @@ def clustered_transition_matrix(
     S: int,
     *,
     k: int = 1,
-    alpha: float = 1.0  # Dirichlet smoothing
+    lambda_smooth: float = 0.0  # Laplace smoothing parameter
 ) -> np.ndarray:
     """
-    Estimate cluster-level transition matrix with Dirichlet(alpha) smoothing.
-    If indices is empty: return uniform rows.
+    Estimate cluster-level transition matrix with optional Laplace smoothing.
+    
+    Args:
+        trajectories: List of trajectories
+        indices: Indices of trajectories in this cluster
+        S: State space size
+        k: k-step transition (default 1)
+        lambda_smooth: Laplace smoothing parameter (default 0.0)
+                       When lambda_smooth > 0, uses Laplace smoothing:
+                       p̂(s'|s) = (count(s,s') + λ) / (count(s) + λS)
+                       When lambda_smooth = 0, uses maximum likelihood estimation:
+                       p̂(s'|s) = count(s,s') / count(s)
+                       
+                       Laplace smoothing helps when regularity assumption is violated
+                       (i.e., when some transitions may be zero in the true model).
+    
+    Returns:
+        P_hat: Estimated transition matrix (S x S)
+    
+    Note: If indices is empty, returns uniform transition matrix.
     """
     if len(indices) == 0:
         return np.full((S, S), 1.0 / S, dtype=float)
@@ -154,10 +172,13 @@ def clustered_transition_matrix(
         N += N_t
         N_row += N_row_t
 
-    # Dirichlet smoothing: add alpha pseudo-counts per outgoing edge
-    N_sm = N.astype(float) + alpha
-    denom = (N_row.astype(float) + alpha * S).reshape(-1, 1)
-    P_hat = N_sm / np.clip(denom, 1e-300, None)
+    # Apply Laplace smoothing if lambda_smooth > 0
+    # Otherwise use maximum likelihood estimation (MLE)
+    N_numerator = N.astype(float) + lambda_smooth
+    denom = (N_row.astype(float) + lambda_smooth * S).reshape(-1, 1)
+    P_hat = N_numerator / denom
+    # P_hat = N_numerator / np.clip(denom, 1e-300, None)
+    
     return P_hat
 
 # ------------------------------

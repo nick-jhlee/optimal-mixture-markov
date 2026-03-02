@@ -128,7 +128,25 @@ def OracleLikelihoodRefinement(trajectories, env):
         f_oracle[t] = np.argmax(likelihoods_t)
     return f_oracle
 
-def LikelihoodRefinement(trajectories, f_hat_1, T, S, max_iter: int = 1, history: bool = False):
+def LikelihoodRefinement(trajectories, f_hat_1, T, S, max_iter: int = 1, history: bool = False, lambda_smooth: float = 0.0):
+    """
+    Likelihood-based refinement with optional Laplace smoothing.
+    
+    Args:
+        trajectories: List of trajectories
+        f_hat_1: Initial clustering assignment
+        T: Number of trajectories
+        S: State space size
+        max_iter: Number of EM iterations
+        history: Whether to return full history
+        lambda_smooth: Laplace smoothing parameter (default 0.0)
+                       When > 0, adds λ to denominator only:
+                       p̂(s'|s) = count(s,s') / (count(s) + λ)
+                       This helps when regularity assumption is violated.
+    
+    Returns:
+        f_hat: Final clustering assignment (or history if history=True)
+    """
     f_hat = f_hat_1.copy()
     K_hat = len(set(f_hat_1.values()))
     H = len(trajectories[0])
@@ -136,8 +154,8 @@ def LikelihoodRefinement(trajectories, f_hat_1, T, S, max_iter: int = 1, history
     f_hats = []
     logliks = []  # total log-likelihood per iteration (after reassignment)
     for _ in range(max_iter):
-        # Compute transition matrices for each cluster
-        Ps_hat = [clustered_transition_matrix(trajectories, [t for t in range(T) if f_hat[t] == k], S) for k in range(K_hat)]
+        # Compute transition matrices for each cluster with optional Laplace smoothing
+        Ps_hat = [clustered_transition_matrix(trajectories, [t for t in range(T) if f_hat[t] == k], S, lambda_smooth=lambda_smooth) for k in range(K_hat)]
 
         total_likelihood = 0.0
         for t, trajectory in enumerate(trajectories):

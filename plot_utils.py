@@ -54,7 +54,7 @@ def plot_panels_with_ci(
     fig, axes = plt.subplots(
         nrows=nrows,
         ncols=ncols,
-        figsize=(6.6 * ncols, 4.6 * nrows),
+        figsize=(8.0 * ncols, 6.0 * nrows),  # Increased from 6.6x4.6 to 8.0x6.0
         constrained_layout=True,
     )
     axes = np.array(axes, ndmin=1).ravel()

@@ -210,10 +210,14 @@ def plot_panels(summary: pd.DataFrame, savepath: str = "results/ablation1_result
         inset_xticks=inset_xticks,
         extra_xticks=[10, 20, 30, 40, 50],
         # Larger fonts
-        title_fontsize=18,
-        label_fontsize=16,
-        tick_fontsize=14,
-        legend_fontsize=16,
+        title_fontsize=22,
+        label_fontsize=20,
+        tick_fontsize=18,
+        legend_fontsize=20,
+        # 4 columns = 3 rows for 12 items (less cramped)
+        legend_ncol=4,
+        legend_bbox=(0.5, 1.12),
+        top_adjust=0.86,
     )
 
 
@@ -238,9 +242,18 @@ def main():
 
     # Plot panels with an inset focusing on H=10..100 (ticks at 10,20,...,100)
     inset_ticks = list(range(10, 21, 10))
+    
+    # Save both PDF and PNG
     plot_panels(
         summary,
         savepath="results/ablation1_results.pdf",
+        inset=True,
+        inset_xlim=(10, 20),
+        inset_xticks=inset_ticks,
+    )
+    plot_panels(
+        summary,
+        savepath="results/ablation1_results.png",
         inset=True,
         inset_xlim=(10, 20),
         inset_xticks=inset_ticks,

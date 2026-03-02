@@ -261,10 +261,10 @@ def plot_panels(summary: pd.DataFrame, percentiles: Sequence[int], savepath: str
         legend_bbox=(0.5, 1.06),
         top_adjust=0.84,
         # Larger fonts
-        title_fontsize=18,
-        label_fontsize=16,
-        tick_fontsize=14,
-        legend_fontsize=16,
+        title_fontsize=22,
+        label_fontsize=20,
+        tick_fontsize=18,
+        legend_fontsize=20,
     )
 
 
@@ -292,13 +292,21 @@ def main():
     summary = summarize(df, alpha=0.05)
     summary.to_csv("results/main_synthetic_results_summary.csv", index=False)
 
-    # Plot panels
+    # Plot panels - save both PDF and PNG
     # Example: focus inset on H=10..100 with ticks at 10,20,...,100
     inset_ticks = list(range(10, 101, 10))
     plot_panels(
         summary,
         percentiles,
         savepath="results/main_synthetic_results.pdf",
+        inset=True,
+        inset_xlim=(10, 100),
+        inset_xticks=inset_ticks,
+    )
+    plot_panels(
+        summary,
+        percentiles,
+        savepath="results/main_synthetic_results.png",
         inset=True,
         inset_xlim=(10, 100),
         inset_xticks=inset_ticks,
