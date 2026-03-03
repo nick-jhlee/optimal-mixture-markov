@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
@@ -9,7 +10,7 @@ from joblib import Parallel, delayed
 
 from Synthetic import MixtureMarkovChains, _build_env_config
 from Clustering import InitialSpectral, LikelihoodRefinement, OracleLikelihoodRefinement
-from mdpmix_three_stage import MixtureMarkovChainLearner
+from mcmix.kausik_original import run_kausik_original
 from utils import bootstrap_mean_ci_multi, error_rate
 from plot_utils import plot_panels_with_ci
 
@@ -25,10 +26,10 @@ CB_PALETTE = {
     # --- Oracle ---
     "oracle":      "#009E73",  # Okabe–Ito green (color-blind friendly)
 
-    # Kausik (blues, LIGHTENED)
-    "kausik_p10":  "#2F65A2",  # lighter navy (was #1F4E79)
-    "kausik_p30":  "#3F87C5",  # medium-light blue (was #0072B2)
-    "kausik_p50":  "#85C3E9",  # softer light blue (was #56B4E9)
+    # Kausik / mdpmix (blues)
+    "kausik_th0":  "#2F65A2",
+    "kausik_th1":  "#3F87C5",
+    "kausik_th2":  "#85C3E9",
 }
 
 STYLES = {
@@ -38,12 +39,40 @@ STYLES = {
 
     "oracle":      dict(lw=2.6, linestyle="--", marker="*", zorder=3),
 
-    "kausik_p10":  dict(lw=2.0, linestyle="--", marker="^", zorder=1),
-    "kausik_p30":  dict(lw=2.0, linestyle="--", marker="D", zorder=1),
-    "kausik_p50":  dict(lw=2.0, linestyle="--", marker="v", zorder=1),
+    "kausik_th0":  dict(lw=2.0, linestyle="--", marker="^", zorder=1),
+    "kausik_th1":  dict(lw=2.0, linestyle="--", marker="D", zorder=1),
+    "kausik_th2":  dict(lw=2.0, linestyle="--", marker="v", zorder=1),
 }
 
 CI_ALPHA = 0.15
+
+def _fmt_th(th: float) -> str:
+    return f"{float(th):.0e}"
+
+
+def _mdpmix_original_error(
+    trajectories: List[List[int]],
+    true_arr: np.ndarray,
+    *,
+    K: int,
+    S: int,
+    H: int,
+    mdpmix_thresh: float,
+    em_iters: int,
+    mdpmix_em_laplace: float = 0.0,
+) -> Tuple[float, float]:
+    out = run_kausik_original(
+        trajectories,
+        true_arr,
+        K=K,
+        S=S,
+        H=H,
+        mdpmix_thresh=mdpmix_thresh,
+        mdpmix_em_iters=em_iters,
+        mdpmix_em_laplace=mdpmix_em_laplace,
+        repo_root=Path(__file__).resolve().parent,
+    )
+    return float(out["mdpmix_original_clust"]), float(out["mdpmix_original_em"])
 
 @dataclass(frozen=True)
 class ExperimentConfig:
@@ -52,9 +81,10 @@ class ExperimentConfig:
     K: int
     S: int
     delta: float
-    percentiles: Tuple[int, ...]
+    mdpmix_threshes: Tuple[float, ...]
     em_iters: int = 1
-    mdpmix_em_iters: int = 50
+    mdpmix_em_iters: int = 10
+    mdpmix_em_laplace: float = 0.0
     seed: int | None = None
 
 
@@ -93,18 +123,19 @@ def run_one_repeat(cfg: ExperimentConfig, repeat_idx: int) -> Dict:
     pred_em10 = np.fromiter((f_hat_hist[-1][t] for t in range(cfg.T)), dtype=int)
     err_em10 = error_rate(pred_em10, true_arr)
 
-    # Kausik mdpmix at multiple percentiles
+    # Kausik mdpmix at multiple thresholds using original mcmix implementation
     mdpmix_errs = {}
-    for p in cfg.percentiles:
-        learner = MixtureMarkovChainLearner(K=cfg.K, verbose=False)
-        learner.fit(
+    for th in cfg.mdpmix_threshes:
+        mdpmix_errs[th] = _mdpmix_original_error(
             trajectories,
-            percentile=p,
-            max_em_iterations=cfg.mdpmix_em_iters,
-            plot_histogram=False,
+            true_arr,
+            K=cfg.K,
+            S=cfg.S,
+            H=cfg.H,
+            mdpmix_thresh=float(th),
+            em_iters=cfg.mdpmix_em_iters,
+            mdpmix_em_laplace=cfg.mdpmix_em_laplace,
         )
-        pred = np.array([int(learner.cluster_labels[t]) for t in range(cfg.T)], dtype=int)
-        mdpmix_errs[p] = error_rate(pred, true_arr)
 
     out = {
         "T": cfg.T,
@@ -115,8 +146,10 @@ def run_one_repeat(cfg: ExperimentConfig, repeat_idx: int) -> Dict:
         "ours_em1": err_em1,
         "ours_em10": err_em10,
     }
-    for p, e in mdpmix_errs.items():
-        out[f"mdpmix_p{p}"] = e
+    for th, (e_clust, e_em) in mdpmix_errs.items():
+        th_tag = _fmt_th(th)
+        out[f"mdpmix_original_clust_th{th_tag}"] = e_clust
+        out[f"mdpmix_original_em_th{th_tag}"] = e_em
     return out
 
 
@@ -129,7 +162,8 @@ def run_grid(
     K: int = 2,
     S: int = 10,
     delta: float = 0.05,
-    percentiles: Sequence[int] = (10, 30, 50),
+    mdpmix_threshes: Sequence[float] = (1e-5, 5e-5, 1e-4),
+    mdpmix_em_laplace: float = 0.0,
     n_repeat: int = 20,
     n_jobs: int = -1,
     base_seed: int | None = 1234,
@@ -142,9 +176,10 @@ def run_grid(
                 jobs.append(
                     ExperimentConfig(
                         T=T, H=H, K=K, S=S, delta=delta,
-                        percentiles=tuple(percentiles),
+                        mdpmix_threshes=tuple(mdpmix_threshes),
                         em_iters=1,
                         mdpmix_em_iters=50,
+                        mdpmix_em_laplace=mdpmix_em_laplace,
                         seed=base_seed,
                     )
                 )
@@ -179,7 +214,7 @@ def summarize(df: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame:
 
 # --------------------------- Plotting --------------------------- #
 
-def plot_panels(summary: pd.DataFrame, percentiles: Sequence[int], savepath: str = "results/main_synthetic_results.pdf",
+def plot_panels(summary: pd.DataFrame, mdpmix_threshes: Sequence[float], savepath: str = "results/main_synthetic_results.pdf",
                 inset: bool = True,
                 inset_xlim: Tuple[int, int] | None = None,
                 inset_xticks: Sequence[int] | None = None) -> None:
@@ -192,21 +227,19 @@ def plot_panels(summary: pd.DataFrame, percentiles: Sequence[int], savepath: str
             return CB_PALETTE["ours_em1"], "-"
         if algo == "ours_em10":
             return CB_PALETTE["ours_em10"], "-"
-        # Distinguish Kausik variants per-percentile with varying dash patterns
-        # Example patterns indexed by percentile lexicographic order
-        dash_patterns = [
-            (0, (2, 2)),   # short dots
-            (0, (4, 2)),   # slightly longer dashes
-            (0, (6, 2)),   # long dashes
-            (0, (4, 1, 1, 1)),  # dash-dot
-            (0, (3, 1, 1, 1, 1, 1)),  # complex pattern for extra variants
-        ]
+        # Kausik: same color per threshold; dotted=clust, solid=EM.
+        th_tokens = [_fmt_th(th) for th in sorted(mdpmix_threshes)]
         try:
-            if algo.startswith("mdpmix_p"):
-                p = int(algo.split("_p")[1])
-                idx = sorted(percentiles).index(p) % len(dash_patterns)
-                color = CB_PALETTE.get(f"kausik_p{p}", "#1F77B4")
-                return color, dash_patterns[idx]
+            if algo.startswith("mdpmix_original_clust_th"):
+                th = algo.split("_th", 1)[1]
+                idx = th_tokens.index(th) % 3
+                color = CB_PALETTE.get(f"kausik_th{idx}", "#1F77B4")
+                return color, ":"
+            if algo.startswith("mdpmix_original_em_th"):
+                th = algo.split("_th", 1)[1]
+                idx = th_tokens.index(th) % 3
+                color = CB_PALETTE.get(f"kausik_th{idx}", "#1F77B4")
+                return color, "-"
         except Exception:
             pass
         return "#1F77B4", (0, (2, 2))
@@ -214,13 +247,16 @@ def plot_panels(summary: pd.DataFrame, percentiles: Sequence[int], savepath: str
     label_map = {
         "oracle": "Oracle",
         "stage1": "Ours (Stage I)",
-        "ours_em1": "Ours (Stage I+II, 1 EM)",
-        "ours_em10": "Ours (Stage I+II, 10 EM)",
-        **{f"mdpmix_p{p}": f"Kausik (p{p})" for p in percentiles},
+        "ours_em1": "Ours (Stage I+II, 1EM)",
+        "ours_em10": "Ours (Stage I+II, 10EM)",
+        **{f"mdpmix_original_clust_th{_fmt_th(th)}": f"Kausik (th{_fmt_th(th)})" for th in mdpmix_threshes},
+        **{f"mdpmix_original_em_th{_fmt_th(th)}": f"Kausik (th{_fmt_th(th)}+EM)" for th in mdpmix_threshes},
     }
 
-    # Ensure Kausik variants are visually distinct: alternate dash patterns
-    series_order = ["oracle", "stage1", "ours_em1", "ours_em10"] + [f"mdpmix_p{p}" for p in percentiles]
+    series_order = ["oracle", "stage1", "ours_em1", "ours_em10"]
+    for th in mdpmix_threshes:
+        th_tag = _fmt_th(th)
+        series_order.extend([f"mdpmix_original_clust_th{th_tag}", f"mdpmix_original_em_th{th_tag}"])
 
     # Previous two-row legend layout using spacers (disabled, kept for reference):
     # legend_order = [
@@ -235,9 +271,9 @@ def plot_panels(summary: pd.DataFrame, percentiles: Sequence[int], savepath: str
     #     "Kausik (p50)",             # 9 (col5,row1)
     #     "<spacer>",                 # 10 (col5,row2)
     # ]
-    # Single-row legend: use as many columns as series
+    # Two-row legend layout (10 total series -> 5 columns x 2 rows)
     legend_order = None
-    legend_ncol = len(series_order)
+    legend_ncol = 5
 
     plot_panels_with_ci(
         summary,
@@ -256,10 +292,10 @@ def plot_panels(summary: pd.DataFrame, percentiles: Sequence[int], savepath: str
         inset_xticks=inset_xticks,
         legend_order=legend_order,
         legend_ncol=legend_ncol,
-        extra_xticks=[300, 500],
+        main_xticks=[10, 50, 90, 200, 300, 400, 500],
         # Pull legend a bit closer and reduce top padding
-        legend_bbox=(0.5, 1.06),
-        top_adjust=0.84,
+        legend_bbox=(0.5, 1.08),
+        top_adjust=0.82,
         # Larger fonts
         title_fontsize=22,
         label_fontsize=20,
@@ -275,12 +311,14 @@ def main():
     T_list = [100, 200, 300, 400, 500, 600]
     # H_list = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     H_list = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500]
-    percentiles = (10, 30, 50)
+    mdpmix_threshes = (1e-5, 1e-4, 1e-3)
+    mdpmix_em_laplace = 0.1
 
     df = run_grid(
         T_list=T_list, H_list=H_list,
         K=3, S=10, delta=0.05,
-        percentiles=percentiles,
+        mdpmix_threshes=mdpmix_threshes,
+        mdpmix_em_laplace=mdpmix_em_laplace,
         n_repeat=30,   # adjust
         n_jobs=-1,
         base_seed=2025,
@@ -293,23 +331,26 @@ def main():
     summary.to_csv("results/main_synthetic_results_summary.csv", index=False)
 
     # Plot panels - save both PDF and PNG
-    # Example: focus inset on H=10..100 with ticks at 10,20,...,100
-    inset_ticks = list(range(10, 101, 10))
+    # Inset plotting disabled for cleaner panels.
+    # Example (disabled): focus inset on H=10..100 with ticks at 10,20,...,100
+    # inset_ticks = list(range(10, 101, 10))
     plot_panels(
         summary,
-        percentiles,
+        mdpmix_threshes,
         savepath="results/main_synthetic_results.pdf",
-        inset=True,
-        inset_xlim=(10, 100),
-        inset_xticks=inset_ticks,
+        inset=False,
+        # inset=True,
+        # inset_xlim=(10, 100),
+        # inset_xticks=inset_ticks,
     )
     plot_panels(
         summary,
-        percentiles,
+        mdpmix_threshes,
         savepath="results/main_synthetic_results.png",
-        inset=True,
-        inset_xlim=(10, 100),
-        inset_xticks=inset_ticks,
+        inset=False,
+        # inset=True,
+        # inset_xlim=(10, 100),
+        # inset_xticks=inset_ticks,
     )
 
 

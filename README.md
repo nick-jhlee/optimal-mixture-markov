@@ -82,11 +82,14 @@ Run
 $ python ablation5.py
 ```
 
-# Reproducing Figure 6 (Real-World Experiments in Appendix F.6)
+# Reproducing Figure 6 (Last.fm 1K Experiment in Appendix F.6)
 Run
 ```shell
-$ python realworld.py
+$ python main_lastfm1k.py
 ```
+The raw datasets are downloaded from:
+- Lastfm-dataset-1K: http://mtg.upf.edu/static/datasets/last.fm/lastfm-dataset-1K.tar.gz
+- Lastfm-ArtistTags2007: https://web.archive.org/web/20110827230919/http://static.echonest.com/Lastfm-ArtistTags2007.tar.gz
 
 
 # Miscellaneous Implementation Details
@@ -99,12 +102,7 @@ see `Clustering.py` for the implementation of our two-stage algorithm.
 
 
 ## Algorithm of Kausik et al. (2023)
-see `mdpmix_three_stage.py` for the implementation of the algorithm of Kausik et al. (2023).
-
-This is divided into three stages:
-- Stage 1: Subspace estimation via trajectory partitioning (`mdpmix_stage1_subspace.py`)
-- Stage 2: Histogram-based thresholding and spectral clustering (`mdpmix_stage2_clustering.py`)
-- Stage 3: EM refinement of transition matrices and priors (`mdpmix_stage3_em.py`)
+see the folder `mcmix` for the implementation of the algorithm of Kausik et al. (2023).
 
 
 

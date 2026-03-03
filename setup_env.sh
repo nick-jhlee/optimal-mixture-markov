@@ -29,7 +29,7 @@ echo "Installing dependencies..."
 source markov/bin/activate
 
 # Install packages directly (not as an editable package)
-uv pip install numpy scipy pandas matplotlib scikit-learn numba joblib tqdm cloudpickle gymnasium farama-notifications
+uv pip install numpy scipy pandas matplotlib scikit-learn numba joblib tqdm cloudpickle gymnasium farama-notifications tensorflow
 
 # create results directory
 mkdir -p results

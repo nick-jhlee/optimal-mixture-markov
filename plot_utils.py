@@ -29,6 +29,7 @@ def plot_panels_with_ci(
     legend_order: Sequence[str] | None = None,
     legend_ncol: int | None = None,
     extra_xticks: Sequence[int] | None = None,
+    main_xticks: Sequence[int] | None = None,
     legend_bbox: Tuple[float, float] | None = None,
     top_adjust: float | None = None,
     title_fontsize: int | None = None,
@@ -107,10 +108,13 @@ def plot_panels_with_ci(
         ax.set_ylim(*ylims)
         ax.grid(alpha=0.3, linestyle="--", linewidth=0.6)
         if len(xs) > 0:
-            ticks = xs[::2]
-            if extra_xticks is not None:
-                keep = [x for x in extra_xticks if x in xs]
-                ticks = sorted(set(ticks).union(keep))
+            if main_xticks is not None:
+                ticks = [x for x in main_xticks if x in xs]
+            else:
+                ticks = xs[::2]
+                if extra_xticks is not None:
+                    keep = [x for x in extra_xticks if x in xs]
+                    ticks = sorted(set(ticks).union(keep))
             ax.set_xticks(ticks)
             # Use per-facet formatter if provided, otherwise use global formatter
             formatter_to_use = None
