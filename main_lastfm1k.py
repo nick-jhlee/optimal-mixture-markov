@@ -437,7 +437,7 @@ def plot_error_vs_h(summary: pd.DataFrame, save_path: Path) -> None:
         plt.fill_between(g["H"], g["q025"], g["q975"], alpha=0.15, color=color)
     plt.xlabel("H")
     plt.ylabel("Error rate")
-    plt.title("Error rate vs H (Last.fm)")
+    plt.title("Error rate vs H (Last.fm 1K)")
     plt.xticks([10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
     plt.grid(alpha=0.3)
     plt.legend(
