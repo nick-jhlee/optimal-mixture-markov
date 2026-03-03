@@ -164,7 +164,7 @@ def run_grid(
     delta: float = 0.05,
     mdpmix_threshes: Sequence[float] = (1e-5, 5e-5, 1e-4),
     mdpmix_em_laplace: float = 0.0,
-    n_repeat: int = 20,
+    n_repeat: int = 30,
     n_jobs: int = -1,
     base_seed: int | None = 1234,
 ) -> pd.DataFrame:

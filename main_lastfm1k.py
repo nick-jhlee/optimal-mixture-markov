@@ -412,24 +412,49 @@ def plot_error_vs_h(summary: pd.DataFrame, save_path: Path) -> None:
             return kausik_colors[1], "-", "Kausik (th5e-06+EM)"
         return "#1f77b4", "-", algo
 
+    # Legend order: row 1 = before EM, row 2 = after EM
+    algos_present = set(summary["algorithm"].unique())
+    row1 = ["ours_stage1"] + [f"mdpmix_original_clust_th{t}" for t in th_tokens]
+    if "mdpmix_original_clust" in algos_present:
+        row1.append("mdpmix_original_clust")
+    row1 = [a for a in row1 if a in algos_present]
+    row2 = [a for a in summary["algorithm"].unique() if a.startswith("ours_stage1plus2_em")]
+    row2 += [f"mdpmix_original_em_th{t}" for t in th_tokens]
+    if "mdpmix_original_em" in algos_present:
+        row2.append("mdpmix_original_em")
+    row2 = [a for a in row2 if a in algos_present]
+    # Plot/legend order: (Ours Stage I, Ours Stage I+II), then each (Kausik th, Kausik th+EM) pair
+    legend_order = [a for pair in zip(row1, row2) for a in pair]
+    ncol = len(row1) if row1 else max(1, len(legend_order) // 2)
+
     plt.figure(figsize=(10, 6))
-    for algo, g in summary.groupby("algorithm", sort=True):
-        g = g.sort_values("H")
+    for algo in legend_order:
+        g = summary[summary["algorithm"] == algo].sort_values("H")
+        if g.empty:
+            continue
         color, linestyle, label = _style_label(algo)
         plt.plot(g["H"], g["mean"], marker="o", label=label, color=color, linestyle=linestyle)
         plt.fill_between(g["H"], g["q025"], g["q975"], alpha=0.15, color=color)
     plt.xlabel("H")
     plt.ylabel("Error rate")
     plt.title("Error rate vs H (Last.fm)")
+    plt.xticks([10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
     plt.grid(alpha=0.3)
-    plt.legend()
+    plt.legend(
+        loc="upper center",
+        ncol=ncol,
+        bbox_to_anchor=(0.5, 1.20),
+        frameon=False,
+    )
     plt.tight_layout()
-    plt.savefig(save_path, dpi=200)
+    base = save_path if save_path.suffix == "" else save_path.with_suffix("")
+    plt.savefig(base.with_suffix(".png"), dpi=200)
+    plt.savefig(base.with_suffix(".pdf"))
     plt.close()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Real-world Last.fm experiment with mdpmix-style preprocessing.")
+    parser = argparse.ArgumentParser(description="Last.fm 1K experiment with mdpmix-style preprocessing.")
     parser.add_argument("--data-root", type=str, default="data", help="Directory for downloaded/extracted datasets.")
     parser.add_argument("--no-download", action="store_true", help="Disable automatic dataset download.")
     parser.add_argument("--top-n-tags", type=int, default=100)
@@ -462,11 +487,30 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--n-jobs", type=int, default=-1)
     parser.add_argument("--diag", action="store_true", help="Print clustering diagnostics per run.")
+    parser.add_argument(
+        "--plot-only",
+        action="store_true",
+        help="Load saved summary CSV and save plot (PNG + PDF) only; no experiment run.",
+    )
     args = parser.parse_args()
 
     data_root = Path(args.data_root)
     results_dir = Path("results")
     results_dir.mkdir(parents=True, exist_ok=True)
+
+    raw_csv = results_dir / "main_lastfm1k_results_raw.csv"
+    summary_csv = results_dir / "main_lastfm1k_results_summary.csv"
+    plot_path = results_dir / "main_lastfm1k_error_vs_H"
+
+    if args.plot_only:
+        if not summary_csv.exists():
+            raise FileNotFoundError(
+                f"--plot-only requires existing summary file: {summary_csv}"
+            )
+        summary = pd.read_csv(summary_csv)
+        plot_error_vs_h(summary, plot_path)
+        print(f"[done] Saved plot from saved data: {plot_path}.png, {plot_path}.pdf")
+        return
 
     lastfm_dir, tags_dir = ensure_data(data_root, auto_download=not args.no_download)
     jobs: List[Tuple[int, int]] = [(h, rep) for h in args.horizons for rep in range(args.n_repeat)]
@@ -482,20 +526,17 @@ def main() -> None:
     )
 
     df = pd.concat(run_rows, ignore_index=True)
-    raw_csv = results_dir / "main_realworld_lastfm_results_raw.csv"
     df.to_csv(raw_csv, index=False)
 
     summary = summarize_by_h(df)
-    summary_csv = results_dir / "main_realworld_lastfm_results_summary.csv"
     summary.to_csv(summary_csv, index=False)
 
-    plot_path = results_dir / "main_realworld_error_vs_H.png"
     plot_error_vs_h(summary, plot_path)
 
-    print("[done] Last.fm real-world comparison complete.")
+    print("[done] Last.fm 1K experiment complete.")
     print(f"[done] Saved raw results: {raw_csv}")
     print(f"[done] Saved summary: {summary_csv}")
-    print(f"[done] Saved plot: {plot_path}")
+    print(f"[done] Saved plot: {plot_path}.png, {plot_path}.pdf")
     print(summary.to_string(index=False))
 
 

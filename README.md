@@ -50,43 +50,48 @@ $ source markov/bin/activate
 $ uv pip install numpy scipy pandas matplotlib scikit-learn numba joblib tqdm cloudpickle gymnasium farama-notifications
 ```
 
+
+# Reproducing All Figures
+
 All figures and results are saved in the `results` folder.
 
-# Reproducing Figure 1 (Main Figure in Section 6)
+## Reproducing Figure 1 (Main Figure in Section 6)
 Run
 ```shell
 $ python main_synthetic.py
 ```
 
-# Reproducing Figure 2 (Ablation #1 in Appendix F.2)
+## Reproducing Figure 2 (Ablation #1 in Appendix F.2)
 Run
 ```shell
 $ python ablation1.py
 ```
 
-# Reproducing Figure 3 (Ablation #2 in Appendix F.3)
+## Reproducing Figure 3 (Ablation #2 in Appendix F.3)
 Run
 ```shell
 $ python ablation2.py
 ```
 
-# Reproducing Figure 4 (Ablation #3 in Appendix F.4)
+## Reproducing Figure 4 (Ablation #3 in Appendix F.4)
 Run
 ```shell
 $ python ablation4.py
 ```
 
-# Reproducing Figure 5 (Ablation #4 in Appendix F.5)
+## Reproducing Figure 5 (Ablation #4 in Appendix F.5)
 Run
 ```shell
 $ python ablation5.py
 ```
 
-# Reproducing Figure 6 (Last.fm 1K Experiment in Appendix F.6)
+## Reproducing Figure 6 (Last.fm 1K Experiment in Appendix F.6)
 Run
 ```shell
 $ python main_lastfm1k.py
 ```
+Outputs are saved as `main_realworld_lastfm_results_*.csv` and `main_realworld_error_vs_H.png` / `.pdf`. To regenerate only the plot from existing summary data, run `python main_lastfm1k.py --plot-only`.
+
 The raw datasets are downloaded from:
 - Lastfm-dataset-1K: http://mtg.upf.edu/static/datasets/last.fm/lastfm-dataset-1K.tar.gz
 - Lastfm-ArtistTags2007: https://web.archive.org/web/20110827230919/http://static.echonest.com/Lastfm-ArtistTags2007.tar.gz
